@@ -28,8 +28,12 @@ class Config:
     # パス設定
     DATA_DIR = Path("data")
     OUT_DIR = Path("outputs")
-    MODEL_FILE = OUT_DIR / "horse_racing_lgbm_ranker.txt"
-    FEATURE_LIST_FILE = OUT_DIR / "feature_list.pkl"
+    
+    # アプリ側(app.py)が期待するファイル名に合わせる（ルート直下に出力）
+    MODEL_FILE = "horse_racing_full_model.txt"
+    FEATURE_LIST_FILE = "feature_list.pkl"
+    
+    # ログファイル等はoutputディレクトリへ
     IMPORTANCE_FILE = OUT_DIR / "feature_importance.csv"
     METRICS_FILE = OUT_DIR / "training_metrics.csv"
     
@@ -155,7 +159,7 @@ def generate_features(df: pd.DataFrame) -> pd.DataFrame:
     print("\n" + "="*60)
     print("🎯 特徴量生成を実行中...")
     
-    # horse_id がない場合は生成
+    # horse_id がない場合は生成（必要な場合のため残すが、特徴量生成はhorse_nameベースに移行済）
     if "horse_id" not in df.columns and Config.HORSE_KEY in df.columns:
         print(f"   horse_id を {Config.HORSE_KEY} から生成")
         df["horse_id"] = pd.factorize(df[Config.HORSE_KEY])[0]
@@ -164,12 +168,13 @@ def generate_features(df: pd.DataFrame) -> pd.DataFrame:
     if Config.DATE_KEY in df.columns:
         df = df.sort_values([Config.DATE_KEY, Config.RACE_ID])
     
-    # 各特徴量の追加（必須カラムの定義を拡張）
+    # 各特徴量の追加（依存関係を考慮した順序）
     feature_funcs = [
         ("通過順特徴量", add_passing_features, ["passing"]),
-        ("騎手傾向特徴量", lambda x: add_jockey_style_features(x, "jockey_profile.csv"), []),
         ("スピード特徴量", add_speed_features, ["distance", "time_sec"]),
         ("距離適性特徴量", add_distance_preference_features, ["distance", "speed"]),
+        # add_jockey_style_features側で二重マージチェック済みだが、念のためここでも呼ぶ
+        ("騎手傾向特徴量", lambda x: add_jockey_style_features(x, "jockey_profile.csv"), ["jockey"]),
         ("近走差分特徴量", lambda x: add_recent_diff_features(x, n_recent=3), []),
     ]
     
@@ -338,12 +343,12 @@ def save_artifacts(
     features: List[str],
     metrics: pd.DataFrame
 ) -> None:
-    """モデルと関連ファイルの保存"""
+    """モデルと結果を保存中"""
     print("\n" + "="*60)
     print("💾 モデルと結果を保存中...")
     
-    # モデル保存
-    model.booster_.save_model(str(Config.MODEL_FILE))
+    # モデル保存 (joblib形式に変更: app.pyでの読み込みに対応)
+    joblib.dump(model, Config.MODEL_FILE)
     print(f"   ✓ モデル: {Config.MODEL_FILE}")
     
     # 特徴量リスト保存
