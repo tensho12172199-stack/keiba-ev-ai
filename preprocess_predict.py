@@ -91,7 +91,7 @@ def preprocess_for_prediction(df_race, feature_list_path="feature_list.pkl"):
     if "distance" in df.columns and "speed" in df.columns:
         df = add_distance_preference_features(df)
     else:
-        df["distance_band"] = "mile"
+        df["distance_band"] = 1  # デフォルトはmile（数値）
         df["speed_dist_avg"] = np.nan
         df["speed_dist_diff"] = np.nan
         df["is_favorite_distance"] = 0
@@ -136,7 +136,36 @@ def preprocess_for_prediction(df_race, feature_list_path="feature_list.pkl"):
     # 学習時の特徴量のみを抽出（順序も保持）
     X = df[feature_list]
     
+    # ========================================
+    # 5. データ型の最終検証と修正
+    # ========================================
+    print(f"   🔍 データ型を検証中...")
+    
+    # object型のカラムをチェック
+    object_cols = X.select_dtypes(include=['object']).columns.tolist()
+    if object_cols:
+        print(f"   ⚠️  object型カラムを検出: {object_cols}")
+        for col in object_cols:
+            # 数値変換を試みる
+            try:
+                X[col] = pd.to_numeric(X[col], errors='coerce').fillna(0)
+                print(f"      ✓ {col} を数値化")
+            except:
+                # Label Encoding
+                X[col] = pd.factorize(X[col])[0]
+                print(f"      ✓ {col} をLabel Encoding")
+    
+    # NaN/Infチェック
+    if X.isna().any().any():
+        print(f"   ⚠️  NaNを検出 - 0で埋めます")
+        X = X.fillna(0)
+    
+    if np.isinf(X.select_dtypes(include=[np.number])).any().any():
+        print(f"   ⚠️  無限大を検出 - 0で置換")
+        X = X.replace([np.inf, -np.inf], 0)
+    
     print(f"   ✅ 最終特徴量数: {len(X.columns)}")
+    print(f"   ✅ データ型: {X.dtypes.unique()}")
     
     return X
 

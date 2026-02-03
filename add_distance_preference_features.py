@@ -1,15 +1,17 @@
 import pandas as pd
 
 def get_distance_band(dist):
-    """距離帯の分類"""
+    """距離帯の分類（数値で返す）"""
+    if pd.isna(dist):
+        return 1  # デフォルトはmile
     if dist <= 1400:
-        return "short"
+        return 0  # short
     elif dist <= 1800:
-        return "mile"
+        return 1  # mile
     elif dist <= 2200:
-        return "middle"
+        return 2  # middle
     else:
-        return "long"
+        return 3  # long
 
 def add_distance_preference_features(df):
     """
@@ -28,7 +30,7 @@ def add_distance_preference_features(df):
         print(f"      ⚠️  距離適性特徴量: 必須カラムが不足 {missing_cols}")
         return df
     
-    # 距離帯の分類
+    # 距離帯の分類（数値で保存）
     df["distance_band"] = df["distance"].apply(get_distance_band)
 
     # ソート

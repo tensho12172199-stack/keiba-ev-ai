@@ -12,9 +12,21 @@ def process_age_sex(df):
     
     try:
         df["age"] = df["age_sex"].str.extract(r"(\d+)").astype(float)
-        df["sex"] = df["age_sex"].str[0].map({"牡": 0, "牝": 1, "セ": 2})
+        
+        # 性別のマッピング（牡=0, 牝=1, セ=2, 騸=3）
+        sex_map = {"牡": 0, "牝": 1, "セ": 2, "騸": 3}
+        df["sex"] = df["age_sex"].str[0].map(sex_map)
+        
+        # マッピングできなかった値を0（牡馬）で埋める
+        df["sex"] = df["sex"].fillna(0).astype(int)
+        
     except Exception as e:
         print(f"      ⚠️  age_sex処理でエラー: {e}")
+        # エラー時はデフォルト値を設定
+        if "age" not in df.columns:
+            df["age"] = 4.0  # デフォルト年齢
+        if "sex" not in df.columns:
+            df["sex"] = 0  # デフォルト性別（牡馬）
     
     return df
 
