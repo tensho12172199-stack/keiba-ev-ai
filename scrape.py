@@ -4,99 +4,123 @@ import pandas as pd
 import time
 import os
 import psycopg2
+from datetime import datetime
 
-# ==============================
-# 環境変数（GitHub Actions）
-# ==============================
 DB_URL = os.environ["DB_URL"]
 
-# ==============================
-# 保存フォルダ
-# ==============================
-SAVE_DIR = "race_csv"
-os.makedirs(SAVE_DIR, exist_ok=True)
-
-# ==============================
-# DB接続
-# ==============================
 conn = psycopg2.connect(DB_URL)
 cur = conn.cursor()
 
-# ==============================
-# レース取得
-# ==============================
+# 取得済み
+cur.execute("select distinct race_id from race_results")
+done_ids = set(r[0] for r in cur.fetchall())
+
+YEARS_BACK = 5
+current_year = datetime.now().year
+years = range(current_year - YEARS_BACK + 1, current_year + 1)
+
+courses = ["01","02","03","04","05","06","07","08","09","10"]
+
+def time_to_sec(t):
+    if ":" not in t:
+        return None
+    m, s = t.split(":")
+    return int(m)*60 + float(s)
+
+def parse_weight(w):
+    if "(" not in w:
+        return None, None
+    base = int(w.split("(")[0])
+    diff = int(w.split("(")[1].replace(")",""))
+    return base, diff
+
 def scrape_race(race_id):
     url = f"https://db.netkeiba.com/race/{race_id}"
-    r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"})
+    r = requests.get(url, headers={"User-Agent":"Mozilla/5.0"})
     r.encoding = "EUC-JP"
 
     if r.status_code != 200:
         return None
 
-    soup = BeautifulSoup(r.text, "html.parser")
-    table = soup.find("table", class_="race_table_01")
-    if table is None:
-        return None
+    soup = BeautifulSoup(r.text,"html.parser")
 
+    race_name = soup.find("h1").text.strip()
+    info = soup.find("div", class_="data_intro").text
+
+    distance = int(info.split("m")[0].split()[-1])
+    course_type = "芝" if "芝" in info else "ダート"
+    track_direction = "右" if "右" in info else "左"
+
+    weather = soup.find("span", class_="weather").text
+    track_condition = soup.find("span", class_="condition").text
+
+    race_date = soup.find("p", class_="smalltxt").text.split()[0]
+
+    table = soup.find("table", class_="race_table_01")
     rows = table.find_all("tr")[1:]
+
     results = []
 
     for row in rows:
-        cols = row.find_all("td")
-        if len(cols) < 15:
+        c = row.find_all("td")
+        if len(c) < 18:
             continue
 
-        horse_no = cols[2].text.strip()
-        horse_name = cols[3].text.strip()
-        rank_text = cols[0].text.strip()
+        time_sec = time_to_sec(c[7].text.strip())
 
-        odds_text = cols[12].text.strip()
-        odds = float(odds_text) if odds_text not in ["---", ""] else None
+        weight, diff = parse_weight(c[14].text.strip())
 
-        rank = int(rank_text) if rank_text.isdigit() else None
+        odds_text = c[12].text.strip()
+        odds = float(odds_text) if odds_text not in ["---",""] else None
+
+        pop = int(c[13].text.strip()) if c[13].text.strip().isdigit() else None
+
+        rank = int(c[0].text.strip()) if c[0].text.strip().isdigit() else None
 
         results.append((
             race_id,
-            int(horse_no),
-            horse_name,
+            race_name,
             rank,
-            odds
+            int(c[1].text.strip()),
+            int(c[2].text.strip()),
+            c[3].text.strip(),
+            c[4].text.strip(),
+            float(c[5].text.strip()),
+            c[6].text.strip(),
+            time_sec,
+            c[8].text.strip(),
+            c[10].text.strip(),
+            float(c[11].text.strip()),
+            odds,
+            pop,
+            weight,
+            info,
+            race_date,
+            distance,
+            course_type,
+            track_direction,
+            weather,
+            track_condition
         ))
 
     return results
 
-# ==============================
-# DB保存（UPSERT）
-# ==============================
-def save_to_db(rows):
+def save(rows):
     cur.executemany("""
-        insert into race_results (race_id, horse_no, horse_name, rank, odds)
-        values (%s,%s,%s,%s,%s)
-        on conflict (race_id, horse_no)
-        do update set
-            horse_name = excluded.horse_name,
-            rank = excluded.rank,
-            odds = excluded.odds
+    insert into race_results values (
+        %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
+        %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
+        %s,%s,%s
+    )
+    on conflict (race_id, horse_no)
+    do update set
+        rank=excluded.rank,
+        odds=excluded.odds,
+        time=excluded.time
     """, rows)
-
     conn.commit()
 
-# ==============================
-# CSV保存
-# ==============================
-def save_csv(race_id, rows):
-    df = pd.DataFrame(rows, columns=[
-        "race_id", "horse_no", "horse_name", "rank", "odds"
-    ])
-    df.to_csv(f"{SAVE_DIR}/{race_id}.csv", index=False, encoding="utf_8_sig")
-
-# ==============================
-# メイン処理（自動更新対応）
-# ==============================
 def main():
-    years = range(2025, 2027)
-    courses = ["01","02","03","04","05","06","07","08","09","10"]
-
     for y in years:
         for c in courses:
             for kai in range(1,7):
@@ -104,20 +128,16 @@ def main():
                     for r in range(1,13):
 
                         race_id = f"{y}{c}{kai:02}{day:02}{r:02}"
-                        csv_path = f"{SAVE_DIR}/{race_id}.csv"
 
-                        # すでにあればスキップ（自動更新）
-                        if os.path.exists(csv_path):
+                        if race_id in done_ids:
                             continue
 
                         rows = scrape_race(race_id)
-
-                        # レース存在しなければ次の日へ
                         if rows is None:
                             break
 
-                        save_csv(race_id, rows)
-                        save_to_db(rows)
+                        save(rows)
+                        done_ids.add(race_id)
 
                         print("saved:", race_id)
                         time.sleep(1)
