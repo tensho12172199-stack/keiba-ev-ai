@@ -14,25 +14,24 @@ conn = psycopg2.connect(DB_URL)
 cur = conn.cursor()
 
 # =========================
-# 取得済み race_id
+# 取得済みrace_id
 # =========================
 cur.execute("select distinct race_id from race_results")
 done_ids = set(r[0] for r in cur.fetchall())
 
 # =========================
-# 取得年数（自由変更）
+# 取得期間
 # =========================
 YEARS_BACK = 5
-
 current_year = datetime.now().year
 years = range(current_year - YEARS_BACK + 1, current_year + 1)
 
 courses = ["01","02","03","04","05","06","07","08","09","10"]
 
 # =========================
-# 補助関数
+# ヘルパー
 # =========================
-def safe_text(tag):
+def safe(tag):
     return tag.text.strip() if tag else None
 
 def time_to_sec(t):
@@ -48,6 +47,14 @@ def parse_weight(w):
         return int(w.split("(")[0])
     except:
         return None
+
+def parse_date(text):
+    if not text:
+        return None
+    m = re.search(r'(\d{4})年(\d{2})月(\d{2})日', text)
+    if not m:
+        return None
+    return f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
 
 # =========================
 # レース取得
@@ -65,8 +72,8 @@ def scrape_race(race_id):
     if not table:
         return None
 
-    race_name = safe_text(soup.find("h1"))
-    info = safe_text(soup.find("div", class_="data_intro")) or ""
+    race_name = safe(soup.find("h1"))
+    info = safe(soup.find("div", class_="data_intro")) or ""
 
     dist_match = re.search(r'(\d+)m', info)
     distance = int(dist_match.group(1)) if dist_match else None
@@ -74,11 +81,11 @@ def scrape_race(race_id):
     course_type = "芝" if "芝" in info else "ダート"
     track_direction = "右" if "右" in info else "左"
 
-    weather = safe_text(soup.find("span", class_="weather"))
-    track_condition = safe_text(soup.find("span", class_="condition"))
+    weather = safe(soup.find("span", class_="weather"))
+    track_condition = safe(soup.find("span", class_="condition"))
 
-    race_date_raw = safe_text(soup.find("p", class_="smalltxt"))
-    race_date = race_date_raw.split()[0] if race_date_raw else None
+    raw_date = safe(soup.find("p", class_="smalltxt"))
+    race_date = parse_date(raw_date)
 
     results = []
 
@@ -130,7 +137,7 @@ def scrape_race(race_id):
     return results
 
 # =========================
-# 保存（UPSERT）
+# 保存
 # =========================
 def save(rows):
     cur.executemany("""
@@ -148,7 +155,7 @@ def save(rows):
     conn.commit()
 
 # =========================
-# メイン
+# 実行
 # =========================
 def main():
     for y in years:
