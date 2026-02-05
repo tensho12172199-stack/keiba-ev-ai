@@ -1,28 +1,27 @@
 import requests
 from bs4 import BeautifulSoup
-import pandas as pd
 import time
 import os
 import psycopg2
 from datetime import datetime
 import re
 
-# ==============================
+# =========================
 # DB接続
-# ==============================
+# =========================
 DB_URL = os.environ["DB_URL"]
 conn = psycopg2.connect(DB_URL)
 cur = conn.cursor()
 
-# ==============================
-# 取得済みrace_id
-# ==============================
+# =========================
+# 取得済み race_id
+# =========================
 cur.execute("select distinct race_id from race_results")
 done_ids = set(r[0] for r in cur.fetchall())
 
-# ==============================
-# 取得期間（任意）
-# ==============================
+# =========================
+# 取得年数（自由変更）
+# =========================
 YEARS_BACK = 5
 
 current_year = datetime.now().year
@@ -30,23 +29,29 @@ years = range(current_year - YEARS_BACK + 1, current_year + 1)
 
 courses = ["01","02","03","04","05","06","07","08","09","10"]
 
-# ==============================
-# ユーティリティ
-# ==============================
+# =========================
+# 補助関数
+# =========================
+def safe_text(tag):
+    return tag.text.strip() if tag else None
+
 def time_to_sec(t):
-    if ":" not in t:
+    if not t or ":" not in t:
         return None
     m, s = t.split(":")
     return int(m) * 60 + float(s)
 
 def parse_weight(w):
-    if "(" not in w:
+    if not w or "(" not in w:
         return None
-    return int(w.split("(")[0])
+    try:
+        return int(w.split("(")[0])
+    except:
+        return None
 
-# ==============================
+# =========================
 # レース取得
-# ==============================
+# =========================
 def scrape_race(race_id):
     url = f"https://db.netkeiba.com/race/{race_id}"
     r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"})
@@ -56,13 +61,12 @@ def scrape_race(race_id):
         return None
 
     soup = BeautifulSoup(r.text, "html.parser")
-
     table = soup.find("table", class_="race_table_01")
-    if table is None:
+    if not table:
         return None
 
-    race_name = soup.find("h1").text.strip()
-    info = soup.find("div", class_="data_intro").text
+    race_name = safe_text(soup.find("h1"))
+    info = safe_text(soup.find("div", class_="data_intro")) or ""
 
     dist_match = re.search(r'(\d+)m', info)
     distance = int(dist_match.group(1)) if dist_match else None
@@ -70,15 +74,15 @@ def scrape_race(race_id):
     course_type = "芝" if "芝" in info else "ダート"
     track_direction = "右" if "右" in info else "左"
 
-    weather = soup.find("span", class_="weather").text
-    track_condition = soup.find("span", class_="condition").text
+    weather = safe_text(soup.find("span", class_="weather"))
+    track_condition = safe_text(soup.find("span", class_="condition"))
 
-    race_date = soup.find("p", class_="smalltxt").text.split()[0]
+    race_date_raw = safe_text(soup.find("p", class_="smalltxt"))
+    race_date = race_date_raw.split()[0] if race_date_raw else None
 
-    rows = table.find_all("tr")[1:]
     results = []
 
-    for row in rows:
+    for row in table.find_all("tr")[1:]:
         c = row.find_all("td")
         if len(c) < 18:
             continue
@@ -86,7 +90,7 @@ def scrape_race(race_id):
         rank = int(c[0].text.strip()) if c[0].text.strip().isdigit() else None
 
         odds_text = c[12].text.strip()
-        odds = float(odds_text) if odds_text not in ["---", ""] else None
+        odds = float(odds_text) if odds_text not in ["", "---"] else None
 
         pop_text = c[13].text.strip()
         popularity = int(pop_text) if pop_text.isdigit() else None
@@ -125,9 +129,9 @@ def scrape_race(race_id):
 
     return results
 
-# ==============================
+# =========================
 # 保存（UPSERT）
-# ==============================
+# =========================
 def save(rows):
     cur.executemany("""
     insert into race_results values (
@@ -137,22 +141,21 @@ def save(rows):
     )
     on conflict (race_id, horse_no)
     do update set
-        rank = excluded.rank,
-        odds = excluded.odds,
-        time = excluded.time
+        rank=excluded.rank,
+        odds=excluded.odds,
+        time=excluded.time
     """, rows)
-
     conn.commit()
 
-# ==============================
+# =========================
 # メイン
-# ==============================
+# =========================
 def main():
     for y in years:
         for c in courses:
-            for kai in range(1, 7):
-                for day in range(1, 13):
-                    for r in range(1, 13):
+            for kai in range(1,7):
+                for day in range(1,13):
+                    for r in range(1,13):
 
                         race_id = f"{y}{c}{kai:02}{day:02}{r:02}"
 
