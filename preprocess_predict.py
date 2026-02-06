@@ -2,6 +2,7 @@
 予測用データの前処理スクリプト
 
 学習時と同じ特徴量を生成します。
+過去レースデータから直近3走の特徴量も追加。
 """
 
 import pandas as pd
@@ -17,8 +18,26 @@ from add_speed_features import add_speed_features
 from add_distance_preference_features import add_distance_preference_features
 from add_recent_diff_features import add_recent_diff_features
 
+# 過去レースデータ管理
+try:
+    from horse_history_db import HorseHistoryDB, calculate_recent_features
+    HISTORY_AVAILABLE = True
+except ImportError:
+    HISTORY_AVAILABLE = False
+    print("⚠️  horse_history_db.py が見つかりません。過去レース機能は無効です。")
 
-def preprocess_for_prediction(df_race, feature_list_path="feature_list.pkl"):
+# 特徴量メタデータ
+try:
+    from feature_metadata import FeatureMetadata
+    METADATA_AVAILABLE = True
+except ImportError:
+    METADATA_AVAILABLE = False
+    print("⚠️  feature_metadata.py が見つかりません。メタデータ機能は無効です。")
+
+
+def preprocess_for_prediction(df_race, feature_list_path="feature_list.pkl",
+                              use_history=True, history_csv="data/race_history.csv",
+                              metadata_path="feature_metadata.json"):
     """
     予測用のデータを前処理
     
@@ -27,22 +46,57 @@ def preprocess_for_prediction(df_race, feature_list_path="feature_list.pkl"):
     Args:
         df_race: レースデータ（出走表）
         feature_list_path: 学習時の特徴量リストファイル
+        use_history: 過去レースデータを使用するか
+        history_csv: 過去レースデータのCSVファイル
+        metadata_path: 特徴量メタデータのJSONファイル
     
     Returns:
         X: 予測用の特徴量DataFrame
     """
     
+    # ========================================
+    # 0. 特徴量メタデータの読み込み
+    # ========================================
+    metadata = None
+    if METADATA_AVAILABLE and Path(metadata_path).exists():
+        try:
+            metadata = FeatureMetadata.load(metadata_path)
+            print("   ✓ 特徴量メタデータを読み込みました")
+            
+            # メタデータから前処理パラメータを取得
+            n_recent = metadata.preprocessing_params.get('n_recent', 3)
+            print(f"   ✓ 直近{n_recent}走を使用")
+        except Exception as e:
+            print(f"   ⚠️  メタデータ読み込みエラー: {e}")
+            n_recent = 3
+    else:
+        print("   ℹ️  メタデータなし（デフォルトパラメータを使用）")
+        n_recent = 3
+    
     # データのコピー
     df = df_race.copy()
     
     # ========================================
-    # 1. 基本的な前処理
+    # 1. 過去レースデータの取得と統合
+    # ========================================
+    if use_history and HISTORY_AVAILABLE:
+        print("   📚 過去レースデータを取得中...")
+        try:
+            history_db = HorseHistoryDB(history_csv=history_csv)
+            df = calculate_recent_features(df, history_db, n_races=3)
+            print("   ✓ 過去レース特徴量を追加")
+        except Exception as e:
+            print(f"   ⚠️  過去レースデータの取得に失敗: {e}")
+            print("   → 過去レース特徴量なしで続行")
+    elif use_history and not HISTORY_AVAILABLE:
+        print("   ⚠️  horse_history_db.py が利用できません")
+    
+    # ========================================
+    # 2. 基本的な前処理
     # ========================================
     print("   🔧 基本特徴量を生成中...")
     
     # feature_engineering.pyの処理を適用
-    # ただし、予測時には rank, time などの結果データがないため、
-    # 欠損値として処理される
     df = apply_all_features(df)
     
     # ========================================

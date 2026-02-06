@@ -6,17 +6,27 @@
 - 複勝確率の計算
 - 三連複（トリオ）確率の追加
 - エラーハンドリングの強化
+- Supabaseから過去レースデータを取得
 """
 
 import numpy as np
 import pandas as pd
 import joblib
 import re
+import os
 from pathlib import Path
 
 from fetch_race import fetch_race_data
 from preprocess_predict import preprocess_for_prediction
 from plackett_luce import simulate_plackett_luce
+
+# Supabase過去レースDB
+try:
+    from supabase_horse_history import SupabaseHorseHistoryDB, calculate_recent_features_supabase
+    SUPABASE_AVAILABLE = True
+except ImportError:
+    SUPABASE_AVAILABLE = False
+    print("⚠️  supabase_horse_history.py が見つかりません")
 
 MODEL_PATH = "horse_racing_full_model.txt"
 
@@ -103,7 +113,7 @@ def calculate_quinella_place(place_probs, horse_ids, top_n=20):
     return df.sort_values("確率", ascending=False).head(top_n).reset_index(drop=True)
 
 
-def predict_race(url_or_id, model_path=MODEL_PATH, n_sim=30000):
+def predict_race(url_or_id, model_path=MODEL_PATH, n_sim=30000, use_supabase=True):
     """
     レース予測を実行
     
@@ -111,6 +121,7 @@ def predict_race(url_or_id, model_path=MODEL_PATH, n_sim=30000):
         url_or_id: netkeibaのURLまたはレースID
         model_path: モデルファイルのパス
         n_sim: Plackett-Luceシミュレーション回数
+        use_supabase: Supabaseから過去レースを取得するか
     
     Returns:
         df_race: 各馬の予測結果
@@ -134,25 +145,56 @@ def predict_race(url_or_id, model_path=MODEL_PATH, n_sim=30000):
     
     print(f"✓ 出走頭数: {len(df_race)}頭")
     
-    # ===== ③ 前処理 =====
+    # ===== ③ Supabaseから過去レースデータを取得 =====
+    if use_supabase and SUPABASE_AVAILABLE:
+        try:
+            print("📚 Supabaseから過去レースデータを取得中...")
+            
+            # Supabase接続（環境変数から）
+            supabase_url = os.getenv("SUPABASE_URL")
+            supabase_key = os.getenv("SUPABASE_KEY")
+            
+            if supabase_url and supabase_key:
+                supabase_db = SupabaseHorseHistoryDB(url=supabase_url, key=supabase_key)
+                
+                # レース日付を取得（リーク防止）
+                race_date = None
+                if 'race_date' in df_race.columns:
+                    race_date = df_race['race_date'].iloc[0]
+                
+                # 過去レース特徴量を追加
+                df_race = calculate_recent_features_supabase(
+                    df_race, 
+                    supabase_db, 
+                    n_races=3
+                )
+                print("✓ 過去レース特徴量を追加しました")
+            else:
+                print("⚠️  環境変数 SUPABASE_URL と SUPABASE_KEY が設定されていません")
+                print("   過去レースデータなしで続行します")
+        except Exception as e:
+            print(f"⚠️  Supabaseからの取得に失敗: {e}")
+            print("   過去レースデータなしで続行します")
+    
+    # ===== ④ 前処理 =====
     print("🔧 特徴量を生成中...")
     X = preprocess_for_prediction(df_race)
     
-    # ===== ④ モデルロード =====
+    # ===== ⑤ モデルロード =====
     if not Path(model_path).exists():
         raise FileNotFoundError(f"モデルファイルが見つかりません: {model_path}")
     
     print(f"🤖 モデルをロード: {model_path}")
     model = joblib.load(model_path)
     
-    # ===== ⑤ Rankerスコア予測 =====
+    # ===== ⑥ Rankerスコア予測 =====
     print("🎯 予測を実行中...")
     scores = model.predict(X)
     
-    # ===== ⑥ スコア → 勝率変換 =====
+    # ===== ⑦ スコア → 勝率変換 =====
     df_race["win_prob"] = softmax(scores)
     
-    # ===== ⑦ Plackett–Luce シミュレーション =====
+    # ===== ⑧ Plackett–Luce シミュレーション =====
     print(f"🎲 {n_sim:,}回シミュレーション中...")
     horse_ids = df_race["horse_no"].tolist()
     win_probs = df_race["win_prob"].values
@@ -166,7 +208,7 @@ def predict_race(url_or_id, model_path=MODEL_PATH, n_sim=30000):
     df_race["win_prob_sim"] = df_race["horse_no"].map(win_sim)
     df_race["place_prob"] = df_race["horse_no"].map(place_prob)
     
-    # ===== ⑧ 三連単 TOP10 =====
+    # ===== ⑨ 三連単 TOP10 =====
     df_trifecta = (
         pd.DataFrame([
             {"1着": k[0], "2着": k[1], "3着": k[2], "確率": v}
@@ -178,7 +220,7 @@ def predict_race(url_or_id, model_path=MODEL_PATH, n_sim=30000):
     )
     df_trifecta["確率"] = df_trifecta["確率"] * 100  # パーセント表示
     
-    # ===== ⑨ 三連複 TOP10 =====
+    # ===== ⑩ 三連複 TOP10 =====
     df_trio = (
         pd.DataFrame([
             {"馬番1": k[0], "馬番2": k[1], "馬番3": k[2], "確率": v}
@@ -190,7 +232,7 @@ def predict_race(url_or_id, model_path=MODEL_PATH, n_sim=30000):
     )
     df_trio["確率"] = df_trio["確率"] * 100  # パーセント表示
     
-    # ===== ⑩ 複勝（馬連的中）TOP20 =====
+    # ===== ⑪ 複勝（馬連的中）TOP20 =====
     df_quinella_place = calculate_quinella_place(place_prob, horse_ids, top_n=20)
     df_quinella_place["確率"] = df_quinella_place["確率"] * 100  # パーセント表示
     

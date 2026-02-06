@@ -7,5 +7,5 @@ lxml
 scikit-learn
 joblib
 lightgbm
-requests
-psycopg2-binary
+-e supabase
+python-dotenv
