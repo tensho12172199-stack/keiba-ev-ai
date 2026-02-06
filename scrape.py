@@ -7,17 +7,30 @@ from datetime import datetime
 import re
 
 # =========================
-# DB接続
+# DB設定
 # =========================
 DB_URL = os.environ["DB_URL"]
-conn = psycopg2.connect(DB_URL)
-cur = conn.cursor()
+
+def get_conn():
+    return psycopg2.connect(
+        DB_URL,
+        sslmode="require",
+        connect_timeout=10
+    )
 
 # =========================
 # 取得済みrace_id
 # =========================
-cur.execute("select distinct race_id from race_results")
-done_ids = set(r[0] for r in cur.fetchall())
+def load_done_ids():
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("select distinct race_id from race_results")
+    ids = set(r[0] for r in cur.fetchall())
+    cur.close()
+    conn.close()
+    return ids
+
+done_ids = load_done_ids()
 
 # =========================
 # 取得期間
@@ -61,7 +74,7 @@ def parse_date(text):
 # =========================
 def scrape_race(race_id):
     url = f"https://db.netkeiba.com/race/{race_id}"
-    r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"})
+    r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
     r.encoding = "EUC-JP"
 
     if r.status_code != 200:
@@ -96,17 +109,13 @@ def scrape_race(race_id):
 
         rank = int(c[0].text.strip()) if c[0].text.strip().isdigit() else None
 
-        odds_text = c[12].text.strip()
-        odds = float(odds_text) if odds_text not in ["", "---"] else None
-
-        pop_text = c[13].text.strip()
-        popularity = int(pop_text) if pop_text.isdigit() else None
+        odds = float(c[12].text.strip()) if c[12].text.strip() not in ["", "---"] else None
+        popularity = int(c[13].text.strip()) if c[13].text.strip().isdigit() else None
 
         time_sec = time_to_sec(c[7].text.strip())
         weight = parse_weight(c[14].text.strip())
 
-        last3f_text = c[11].text.strip()
-        last_3f = float(last3f_text) if last3f_text not in ["", "---"] else None
+        last_3f = float(c[11].text.strip()) if c[11].text.strip() not in ["", "---"] else None
 
         results.append((
             race_id,
@@ -137,9 +146,12 @@ def scrape_race(race_id):
     return results
 
 # =========================
-# 保存
+# 保存（毎回接続）
 # =========================
 def save(rows):
+    conn = get_conn()
+    cur = conn.cursor()
+
     cur.executemany("""
     insert into race_results values (
         %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
@@ -152,7 +164,10 @@ def save(rows):
         odds=excluded.odds,
         time=excluded.time
     """, rows)
+
     conn.commit()
+    cur.close()
+    conn.close()
 
 # =========================
 # 実行
@@ -160,9 +175,9 @@ def save(rows):
 def main():
     for y in years:
         for c in courses:
-            for kai in range(1,7):
-                for day in range(1,13):
-                    for r in range(1,13):
+            for kai in range(1, 7):
+                for day in range(1, 13):
+                    for r in range(1, 13):
 
                         race_id = f"{y}{c}{kai:02}{day:02}{r:02}"
 
