@@ -1,0 +1,19 @@
+❌ エラーが発生しました: 'race_date'
+================================================================================
+Traceback (most recent call last):
+  File "c:\Users\tensh\OneDrive\デスクトップ\競馬予想\train_with_supabase_history.py", line 524, in main
+    df = generate_features_with_history(df, config, supabase_db)
+  File "c:\Users\tensh\OneDrive\デスクトップ\競馬予想\train_with_supabase_history.py", line 200, in generate_features_with_history
+    date_key = data_config['race_date']
+               ~~~~~~~~~~~^^^^^^^^^^^^^
+KeyError: 'race_date'
+Traceback (most recent call last):
+  File "c:\Users\tensh\OneDrive\デスクトップ\競馬予想\train_with_supabase_history.py", line 595, in <module>
+    main(args)
+    ~~~~^^^^^^
+  File "c:\Users\tensh\OneDrive\デスクトップ\競馬予想\train_with_supabase_history.py", line 524, in main
+    df = generate_features_with_history(df, config, supabase_db)
+  File "c:\Users\tensh\OneDrive\デスクトップ\競馬予想\train_with_supabase_history.py", line 200, in generate_features_with_history
+    date_key = data_config['race_date']
+               ~~~~~~~~~~~^^^^^^^^^^^^^
+KeyError: 'race_date'
