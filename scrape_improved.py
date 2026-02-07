@@ -6,6 +6,7 @@
 - スクレイピング済みのレースは自動スキップ
 - エラーハンドリング強化
 - 進捗状況の詳細表示
+- 修正: 全レースを確実に取得できるようループ構造を改善
 """
 
 import requests
@@ -290,30 +291,6 @@ def save_to_db(rows: List[Tuple]) -> bool:
         return False
 
 # =========================
-# レースID生成
-# =========================
-def generate_race_ids(year: int, course_code: str) -> List[str]:
-    """
-    特定の年・競馬場のレースID一覧を生成
-    
-    Args:
-        year: 年
-        course_code: 競馬場コード (01-10)
-    
-    Returns:
-        レースIDのリスト
-    """
-    race_ids = []
-    
-    for kai in range(1, 7):      # 開催回 (1-6)
-        for day in range(1, 13):  # 日数 (1-12)
-            for r in range(1, 13): # レース番号 (1-12)
-                race_id = f"{year}{course_code}{kai:02}{day:02}{r:02}"
-                race_ids.append(race_id)
-    
-    return race_ids
-
-# =========================
 # メイン処理
 # =========================
 def main():
@@ -351,52 +328,66 @@ def main():
     for year in range(start_year, end_year + 1):
         print(f"\n📆 {year}年のレースを取得中...")
         
+        # 競馬場ごとに処理
         for course_code in course_codes:
-            consecutive_not_found = 0  # 連続で見つからない回数
-            
-            # レースID一覧を生成
-            race_ids = generate_race_ids(year, course_code)
-            
-            for race_id in race_ids:
-                # スキップ判定
-                if race_id in done_ids:
-                    total_skipped += 1
-                    continue
-                
-                # レース結果を取得
-                rows = scrape_race(race_id)
-                
-                # レースが存在しない場合
-                if rows is None:
-                    consecutive_not_found += 1
+            # 開催回 (1-6)
+            for kai in range(1, 7):
+                # 日数 (1-12)
+                for day in range(1, 13):
                     
-                    # 連続で5レース見つからなければ、その開催はスキップ
-                    if consecutive_not_found >= 5:
-                        break
+                    # この日のレースを処理
+                    day_has_race = False # この日にレースがあったかどうかのフラグ
                     
-                    time.sleep(0.5)  # 短めのwait
-                    continue
-                
-                # レースが見つかった
-                consecutive_not_found = 0
-                
-                # DB保存
-                if save_to_db(rows):
-                    done_ids.add(race_id)
-                    total_new += 1
-                    print(f"✓ {race_id}: {len(rows)}頭の結果を保存")
-                else:
-                    print(f"❌ {race_id}: 保存失敗")
-                
-                total_scraped += 1
-                
-                # レート制限対策
-                time.sleep(1)
-                
-                # 進捗表示（100レースごと）
-                if total_scraped % 100 == 0:
-                    print(f"   進捗: {total_scraped}レース取得済み")
-    
+                    # レース番号 (1-12)
+                    for r in range(1, 13):
+                        race_id = f"{year}{course_code}{kai:02}{day:02}{r:02}"
+                        
+                        # スキップ判定
+                        if race_id in done_ids:
+                            total_skipped += 1
+                            day_has_race = True # すでにDBにある＝レースは存在する
+                            continue
+                        
+                        # レース結果を取得
+                        rows = scrape_race(race_id)
+                        
+                        # レースが存在しない場合
+                        if rows is None:
+                            # もし第1レースが存在しなければ、その日は開催がないと判断してループを抜ける
+                            # (これにより無駄なアクセスを減らしつつ、次の日/次の開催はチェックを続ける)
+                            if r == 1:
+                                break
+                            
+                            # 1Rはあるのに途中のレースがない場合は、単にそのレースがないだけとして次へ
+                            # (通常JRAでは稀だが、念のため続行)
+                            continue
+                        
+                        # レースが見つかった
+                        day_has_race = True
+                        
+                        # DB保存
+                        if save_to_db(rows):
+                            done_ids.add(race_id)
+                            total_new += 1
+                            print(f"✓ {race_id}: {len(rows)}頭の結果を保存")
+                        else:
+                            print(f"❌ {race_id}: 保存失敗")
+                        
+                        total_scraped += 1
+                        
+                        # レート制限対策
+                        time.sleep(1)
+                        
+                        # 進捗表示（100レースごと）
+                        if total_scraped % 100 == 0:
+                            print(f"   進捗: {total_scraped}レース取得済み")
+                    
+                    # 第1レースが存在しなかった場合、またはDBにもなかった場合は
+                    # この日は開催がないので、ウェイトを短くして次の日へ
+                    if not day_has_race:
+                        # 存在しない日の確認アクセス負荷軽減のための短いスリープ
+                        time.sleep(0.1)
+
     # 最終結果
     print("\n" + "="*80)
     print("✅ スクレイピング完了")
