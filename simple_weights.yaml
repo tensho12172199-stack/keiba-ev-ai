@@ -1,0 +1,210 @@
+# ============================================================
+# 競馬予測モデル シンプル設定ファイル
+# ============================================================
+
+# ============================================================
+# 除外する特徴量（学習に使わない）
+# ============================================================
+exclude_features:
+  # --- リーク（未来の情報）---
+  - "rank"                        # 着順（目的変数）
+  - "time"                        # タイム文字列
+  - "time_sec"                    # タイム秒数（リーク）
+  - "speed"                       # スピード（time_secから計算されるのでリーク）
+  - "margin"                      # 着差（リーク）
+  - "odds"                        # オッズ（リーク）
+  - "popularity"                  # 人気（リーク）
+  
+  # --- 通過順そのもの（リーク）---
+  - "passing"                     # 通過順文字列
+  - "passing_1c"                  # 1コーナー通過順
+  - "passing_4c"                  # 4コーナー通過順
+  - "last_3f"                     # 上がり3F（リーク）
+  
+  # --- 近走平均との差分（当該レースのspeedが必要）---
+  - "speed_recent_diff_3"         # speedを使うのでリーク
+  
+  # --- 識別情報（学習に不要）---
+  - "race_id"                     # レースID
+  - "race_name"                   # レース名
+  - "race_date"                   # レース日付
+  - "date"                        # 日付
+  - "horse_name"                  # 馬名
+  - "horse_id"                    # 馬ID
+  - "jockey"                      # 騎手名
+  - "trainer"                     # 調教師名
+  - "owner"                       # 馬主名
+  
+  # --- その他 ---
+  - "sex_age"                     # 性齢文字列（age, sexに分解済み）
+  - "horse_weight"                # 馬体重文字列（horse_weight_baseに変換済み）
+  - "waku_no"                     # 枠番
+  - "horse_no"                    # 馬番
+
+# ============================================================
+# 特徴量の重み（1.0 = 標準、2.0 = 2倍、0.5 = 半分）
+# ============================================================
+feature_weights:
+  # ===== 過去レース情報（Supabaseから取得される特徴量）=====
+  past_races_count: 1.5           # 過去レース数
+  recent_avg_rank: 2.0            # 直近平均着順（最重要）
+  recent_best_rank: 1.5           # 直近最高着順
+  recent_avg_time_sec: 1.0        # 直近平均タイム
+  recent_avg_speed: 2.0           # 直近平均スピード（最重要）
+  recent_win_rate: 2.0            # 直近勝率（最重要）
+  recent_top3_rate: 1.5           # 直近複勝率
+  days_since_last_race: 1.2       # 前走からの日数
+  recent_avg_pos_4c: 1.3          # 直近4コーナー平均位置
+
+  # ===== 通過順・脚質 =====
+  passing_gain: 1.5               # 通過順上がり
+  style_front: 1.0                # 逃げ型
+  style_stalker: 1.0              # 先行型
+  style_closer: 0.8               # 差し型
+
+  # ===== スピード =====
+  # speed: 1.0                    # スピード指数（除外: リーク）
+  speed_recent_avg_3: 2.0         # 直近3走平均スピード（これを使う）
+  
+  # ===== 距離適性 =====
+  distance_band: 1.0              # 距離帯
+  
+  # ===== 基本情報 =====
+  age: 1.0                        # 年齢
+  sex: 0.8                        # 性別
+  weight_carrier: 0.7             # 斤量
+  horse_weight_base: 0.5          # 馬体重
+
+  # ===== コース条件 =====
+  course_type_encoded: 0.7        # 芝/ダート
+  track_direction_encoded: 0.3    # 右/左
+  track_condition_encoded: 0.5    # 馬場状態
+
+# ============================================================
+# LightGBM パラメータ（詳細設定）
+# ============================================================
+lgbm_params:
+  # --- 基本設定 ---
+  objective: "lambdarank"         # ランキング学習（固定）
+  metric: "ndcg"                  # 評価指標（固定）
+  
+  # --- ツリー構造 ---
+  num_leaves: 50                  # 葉の数（大きい=複雑、小さい=シンプル）
+                                  # 推奨: 31〜100
+  max_depth: -1                   # 木の深さ制限（-1=無制限）
+                                  # 推奨: -1 または 3〜10
+  min_child_samples: 15           # 葉に必要な最小データ数
+                                  # 推奨: 10〜30（大きい=過学習防止）
+  min_child_weight: 0.001         # 葉の最小重み
+  
+  # --- 学習率 ---
+  learning_rate: 0.03             # 学習率（小さい=精度UP、時間かかる）
+                                  # 推奨: 0.01〜0.1
+  n_estimators: 1000              # 学習回数（多い=精度UP、過学習リスク）
+                                  # 推奨: 500〜2000
+  
+  # --- サンプリング ---
+  subsample: 0.8                  # 行のサンプリング率
+                                  # 推奨: 0.7〜1.0（小さい=過学習防止）
+  subsample_freq: 1               # サンプリング頻度（通常1）
+  colsample_bytree: 0.8           # 列（特徴量）のサンプリング率
+                                  # 推奨: 0.7〜1.0
+  
+  # --- 正則化 ---
+  reg_alpha: 0.0                  # L1正則化（大きい=スパース）
+                                  # 推奨: 0.0〜1.0
+  reg_lambda: 0.0                 # L2正則化（大きい=過学習防止）
+                                  # 推奨: 0.0〜1.0
+  min_gain_to_split: 0.0          # 分割に必要な最小ゲイン
+                                  # 推奨: 0.0〜0.1
+  
+  # --- その他 ---
+  random_state: 42                # 乱数シード（再現性のため固定）
+  importance_type: "gain"         # 重要度の計算方法
+  verbose: -1                     # ログ出力（-1=最小限）
+  
+  # --- 早期停止 ---
+  early_stopping_rounds: 100      # N回改善なしで停止
+                                  # 推奨: 50〜200
+
+# ============================================================
+# データ設定
+# ============================================================
+data:
+  train_end_date: "2024-06-30"    # この日付までを訓練データ
+  start_date: "2023-01-01"        # データ開始日（期間を短くすると速い）
+  end_date: "2024-12-31"          # データ終了日
+  n_recent: 3                     # 過去レース参照数（直近N走）
+                                  # 推奨: 3〜5
+
+# ============================================================
+# 学習設定
+# ============================================================
+training:
+  log_evaluation_period: 100      # N回ごとに評価ログ表示
+  show_feature_importance: 20     # 重要度を表示する特徴量数
+
+# ============================================================
+# プリセット設定（すぐ使える設定集）
+# ============================================================
+presets:
+  # デフォルト設定
+  default:
+    description: "バランスの取れた標準設定"
+    # 上記の設定をそのまま使用
+  
+  # 高精度設定
+  high_accuracy:
+    description: "精度重視（学習に時間かかる）"
+    lgbm_params:
+      num_leaves: 80
+      learning_rate: 0.01
+      n_estimators: 2000
+      reg_alpha: 0.1
+      reg_lambda: 0.1
+    feature_weights:
+      recent_avg_rank: 3.0
+      recent_win_rate: 3.0
+      recent_avg_speed: 2.5
+  
+  # 高速設定
+  fast:
+    description: "速度重視（精度やや低い）"
+    lgbm_params:
+      num_leaves: 31
+      learning_rate: 0.1
+      n_estimators: 300
+    data:
+      start_date: "2024-01-01"
+  
+  # 過学習防止設定
+  robust:
+    description: "過学習を防ぐ堅実な設定"
+    lgbm_params:
+      num_leaves: 31
+      min_child_samples: 30
+      subsample: 0.7
+      colsample_bytree: 0.7
+      reg_alpha: 0.3
+      reg_lambda: 0.3
+  
+  # 過去レース超重視
+  history_focus:
+    description: "過去レース情報を最大活用"
+    feature_weights:
+      past_races_count: 2.0
+      recent_avg_rank: 3.0
+      recent_best_rank: 2.5
+      recent_avg_speed: 3.0
+      recent_win_rate: 3.0
+      recent_top3_rate: 2.5
+      days_since_last_race: 2.0
+      recent_avg_pos_4c: 2.0
+    data:
+      n_recent: 5
+
+# ============================================================
+# 使用するプリセット
+# ============================================================
+active_preset: "default"          # 使いたいプリセット名を指定
+                                  # default / high_accuracy / fast / robust / history_focus
