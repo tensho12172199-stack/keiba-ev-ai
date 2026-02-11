@@ -10,7 +10,10 @@ exclude_features:
   - "rank"                        # 着順（目的変数）
   - "time"                        # タイム文字列
   - "time_sec"                    # タイム秒数（リーク）
-  - "speed"                       # スピード（time_secから計算されるのでリーク）
+  - "speed"                       # 単純な距離/時間（リーク、使わない）
+  - "speed_raw"                   # 距離/時間の生値（リーク）
+  - "speed_index"                 # 当該レースのスピード指数（リーク）
+  - "speed_index_diff"            # スピード指数差分（リーク）
   - "margin"                      # 着差（リーク）
   - "odds"                        # オッズ（リーク）
   - "popularity"                  # 人気（リーク）
@@ -21,7 +24,7 @@ exclude_features:
   - "passing_4c"                  # 4コーナー通過順
   - "last_3f"                     # 上がり3F（リーク）
   
-  # --- 近走平均との差分（当該レースのspeedが必要）---
+  # --- 近走差分（当該レースの値が必要なのでリーク）---
   - "speed_recent_diff_3"         # speedを使うのでリーク
   
   # --- 識別情報（学習に不要）---
@@ -50,11 +53,15 @@ feature_weights:
   recent_avg_rank: 2.0            # 直近平均着順（最重要）
   recent_best_rank: 1.5           # 直近最高着順
   recent_avg_time_sec: 1.0        # 直近平均タイム
-  recent_avg_speed: 2.0           # 直近平均スピード（最重要）
+  recent_avg_speed: 2.0           # 直近平均スピード（最重要）→ 廃止予定
   recent_win_rate: 2.0            # 直近勝率（最重要）
   recent_top3_rate: 1.5           # 直近複勝率
   days_since_last_race: 1.2       # 前走からの日数
   recent_avg_pos_4c: 1.3          # 直近4コーナー平均位置
+
+  # ===== スピード指数（新）=====
+  speed_index_avg_past: 2.5       # 過去平均スピード指数（最重要★★★）
+  speed_index_max_past: 1.8       # 過去最高スピード指数
 
   # ===== 通過順・脚質 =====
   passing_gain: 1.5               # 通過順上がり
@@ -62,10 +69,6 @@ feature_weights:
   style_stalker: 1.0              # 先行型
   style_closer: 0.8               # 差し型
 
-  # ===== スピード =====
-  # speed: 1.0                    # スピード指数（除外: リーク）
-  speed_recent_avg_3: 2.0         # 直近3走平均スピード（これを使う）
-  
   # ===== 距離適性 =====
   distance_band: 1.0              # 距離帯
   

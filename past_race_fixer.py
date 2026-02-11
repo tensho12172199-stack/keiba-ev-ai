@@ -26,11 +26,13 @@ def ensure_past_race_features(df):
         'recent_avg_rank': 0,
         'recent_best_rank': 0,
         'recent_avg_time_sec': 0,
-        'recent_avg_speed': 0,          # ← 欠損しやすい
+        'recent_avg_speed': 0,          # 従来のスピード
+        'speed_index_avg_past': 0,      # 新: スピード指数平均
+        'speed_index_max_past': 0,      # 新: スピード指数最大
         'recent_win_rate': 0,
         'recent_top3_rate': 0,
-        'days_since_last_race': 0,      # ← 欠損しやすい
-        'recent_avg_pos_4c': 0          # ← 欠損しやすい
+        'days_since_last_race': 0,
+        'recent_avg_pos_4c': 0
     }
     
     added_count = 0
