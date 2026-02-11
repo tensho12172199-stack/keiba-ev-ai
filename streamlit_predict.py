@@ -103,23 +103,38 @@ def predict_race_streamlit(race_df,
         # 除外リスト読み込み
         exclude_list = load_exclude_list_streamlit()
         
-        # ---------------------------------------------------------
-        # 【修正箇所】性別カラム(sex)が文字列(object)の場合の数値変換処理
-        # ---------------------------------------------------------
-        if 'sex' in race_df.columns and race_df['sex'].dtype == 'object':
-            # st.info("ℹ️ 'sex'カラムを数値に変換します（牡:0, 牝:1, セ:2）")
-            sex_map = {'牡': 0, '牝': 1, 'セ': 2}
-            # マッピングできないものは0(牡)とみなす
-            race_df['sex'] = race_df['sex'].map(sex_map).fillna(0).astype(int)
-
-        # デバッグ情報表示
-        with st.expander("🔍 特徴量の詳細情報"):
+        # 現在のDataFrameの状態を詳細表示
+        with st.expander("🔍 現在のデータ状態（デバッグ情報）"):
             st.write(f"**全カラム数:** {len(race_df.columns)}")
-            st.write(f"**数値カラム数:** {len(race_df.select_dtypes(include=['int64', 'float64']).columns)}")
-            st.write(f"**除外リスト数:** {len(exclude_list)}")
-            st.write(f"**学習時の特徴量数:** {len(feature_list)}")
+            st.write(f"**行数:** {len(race_df)}")
+            
+            # 数値カラム
+            numeric_cols = race_df.select_dtypes(include=['int64', 'float64']).columns.tolist()
+            st.write(f"**数値カラム数:** {len(numeric_cols)}")
+            
+            # 過去レース特徴量の確認
+            past_race_features = [
+                'past_races_count', 'recent_avg_rank', 'recent_best_rank',
+                'recent_avg_time_sec', 'recent_avg_speed', 'recent_win_rate',
+                'recent_top3_rate', 'days_since_last_race', 'recent_avg_pos_4c'
+            ]
+            
+            st.write("**過去レース特徴量の状態:**")
+            for feat in past_race_features:
+                if feat in race_df.columns:
+                    # 値の統計
+                    non_zero = (race_df[feat] != 0).sum()
+                    st.write(f"✓ {feat}: {non_zero}/{len(race_df)} 頭が非ゼロ")
+                else:
+                    st.write(f"❌ {feat}: 存在しない")
+            
+            # 全カラムリスト
+            with st.expander("全カラム一覧"):
+                for i, col in enumerate(race_df.columns, 1):
+                    dtype = race_df[col].dtype
+                    st.write(f"{i}. {col} ({dtype})")
         
-        # 欠損特徴量を確認
+        # 学習時の特徴量で欠損しているものを確認
         missing_features = []
         for feat in feature_list:
             if feat not in race_df.columns:
@@ -127,38 +142,32 @@ def predict_race_streamlit(race_df,
                 race_df[feat] = 0  # 0埋め
         
         if missing_features:
-            with st.expander(f"⚠️ 欠損している特徴量: {len(missing_features)}個"):
-                for feat in missing_features[:20]:
-                    st.write(f"- {feat} → 0で埋めました")
-                if len(missing_features) > 20:
-                    st.write(f"... 他 {len(missing_features) - 20}個")
-        
-        # 余分な特徴量を確認（参考情報）
-        extra_features = [col for col in race_df.columns 
-                         if col not in feature_list and 
-                         col in race_df.select_dtypes(include=['int64', 'float64']).columns]
-        
-        if extra_features:
-            with st.expander(f"ℹ️ 学習時になかった特徴量: {len(extra_features)}個（使用されません）"):
-                for feat in extra_features[:20]:
-                    st.write(f"- {feat}")
-                if len(extra_features) > 20:
-                    st.write(f"... 他 {len(extra_features) - 20}個")
+            st.warning(f"⚠️ 欠損している特徴量: {len(missing_features)}個を0で埋めました")
+            
+            with st.expander("欠損特徴量の詳細"):
+                # 過去レース特徴量かどうか判定
+                past_missing = [f for f in missing_features if any(
+                    keyword in f for keyword in ['recent', 'past_races', 'days_since']
+                )]
+                other_missing = [f for f in missing_features if f not in past_missing]
+                
+                if past_missing:
+                    st.error(f"**過去レース特徴量が不足: {len(past_missing)}個**")
+                    st.write("→ Supabase接続ができていない可能性があります")
+                    for feat in past_missing[:10]:
+                        st.write(f"- {feat}")
+                    if len(past_missing) > 10:
+                        st.write(f"... 他 {len(past_missing) - 10}個")
+                
+                if other_missing:
+                    st.warning(f"**その他の特徴量が不足: {len(other_missing)}個**")
+                    for feat in other_missing[:10]:
+                        st.write(f"- {feat}")
+                    if len(other_missing) > 10:
+                        st.write(f"... 他 {len(other_missing) - 10}個")
         
         # 学習時と同じ順序で特徴量を並べる
         X = race_df[feature_list].copy()
-        
-        # ---------------------------------------------------------
-        # 【修正箇所】最終的なデータ型チェック（Object型が残っていないか確認）
-        # ---------------------------------------------------------
-        object_cols = X.select_dtypes(include=['object']).columns
-        if len(object_cols) > 0:
-            st.warning(f"⚠️ 数値化できていないカラムを検出: {list(object_cols)}")
-            st.warning("これらを強制的に0に変換して予測を続行します。")
-            
-            for col in object_cols:
-                # 無理やり数値変換（エラーは0になる）
-                X[col] = pd.to_numeric(X[col], errors='coerce').fillna(0)
         
         st.success(f"✅ 予測用データ準備完了（特徴量: {len(X.columns)}個）")
         
@@ -246,7 +255,7 @@ if __name__ == "__main__":
     sample_data = {
         'horse_name': ['馬A', '馬B', '馬C'],
         'age': [4, 5, 3],
-        'sex': ['牡', '牝', 'セ'], # 文字列でテスト
+        'sex': [0, 0, 1],
         'weight_carrier': [55, 56, 54],
         'recent_avg_rank': [2.3, 3.5, 1.8],
         'recent_win_rate': [0.33, 0.20, 0.45]

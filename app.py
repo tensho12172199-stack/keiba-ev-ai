@@ -187,17 +187,29 @@ if predict_button:
             # 3. 過去レース特徴量
             status_text.text("🔍 過去レースデータ取得中...")
             
+            # 環境変数の確認
+            supabase_url = os.getenv("SUPABASE_URL")
+            supabase_key = os.getenv("SUPABASE_KEY")
+            
             if supabase_url and supabase_key:
+                st.info(f"✓ Supabase URL: {supabase_url[:30]}...")
+                
                 try:
                     from supabase_horse_history import (
                         SupabaseHorseHistoryDB,
                         calculate_recent_features_supabase
                     )
                     
+                    # Supabase接続
+                    st.write("🔌 Supabase接続中...")
                     supabase_db = SupabaseHorseHistoryDB(
                         url=supabase_url,
                         key=supabase_key
                     )
+                    st.success("✅ Supabase接続成功")
+                    
+                    # 過去レース取得
+                    st.write(f"📊 {len(race_df)}頭の過去レースデータを取得中...")
                     
                     race_df = calculate_recent_features_supabase(
                         race_df,
@@ -205,14 +217,43 @@ if predict_button:
                         n_races=3
                     )
                     
-                    st.success("✅ 過去レースデータを取得")
+                    # 取得確認
+                    past_features_count = 0
+                    if 'recent_avg_rank' in race_df.columns:
+                        past_features_count = (race_df['recent_avg_rank'] > 0).sum()
                     
-                except ImportError:
-                    st.warning("⚠️ supabase_horse_history.py が見つかりません")
+                    if past_features_count > 0:
+                        st.success(f"✅ 過去レースデータ取得成功（{past_features_count}頭分）")
+                    else:
+                        st.warning("⚠️ 過去レースデータが0件です（新馬戦の可能性）")
+                    
+                except ImportError as e:
+                    st.error(f"❌ supabase_horse_history.py が見つかりません: {e}")
+                    st.warning("→ 過去レースデータなしで予測します（精度は低下します）")
+                    
                 except Exception as e:
-                    st.warning(f"⚠️ 過去レースデータ取得エラー: {e}")
+                    st.error(f"❌ 過去レースデータ取得エラー: {e}")
+                    
+                    with st.expander("詳細なエラー情報"):
+                        import traceback
+                        st.code(traceback.format_exc())
+                    
+                    st.warning("→ 過去レースデータなしで予測します（精度は低下します）")
             else:
-                st.info("ℹ️ Supabaseが未設定のため、過去レースデータなしで予測します")
+                st.error("❌ Supabase環境変数が設定されていません")
+                
+                st.write("**必要な環境変数:**")
+                st.code("""
+SUPABASE_URL=https://xxxxx.supabase.co
+SUPABASE_KEY=eyJhbGci...
+                """)
+                
+                st.write("**Streamlit Cloudでの設定方法:**")
+                st.write("1. アプリの設定画面を開く")
+                st.write("2. Secrets タブを選択")
+                st.write("3. 上記の環境変数を追加")
+                
+                st.warning("→ 過去レースデータなしで予測します（精度は大幅に低下します）")
             
             progress_bar.progress(70)
             
