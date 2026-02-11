@@ -103,6 +103,15 @@ def predict_race_streamlit(race_df,
         # 除外リスト読み込み
         exclude_list = load_exclude_list_streamlit()
         
+        # ---------------------------------------------------------
+        # 【修正箇所】性別カラム(sex)が文字列(object)の場合の数値変換処理
+        # ---------------------------------------------------------
+        if 'sex' in race_df.columns and race_df['sex'].dtype == 'object':
+            # st.info("ℹ️ 'sex'カラムを数値に変換します（牡:0, 牝:1, セ:2）")
+            sex_map = {'牡': 0, '牝': 1, 'セ': 2}
+            # マッピングできないものは0(牡)とみなす
+            race_df['sex'] = race_df['sex'].map(sex_map).fillna(0).astype(int)
+
         # デバッグ情報表示
         with st.expander("🔍 特徴量の詳細情報"):
             st.write(f"**全カラム数:** {len(race_df.columns)}")
@@ -138,6 +147,18 @@ def predict_race_streamlit(race_df,
         
         # 学習時と同じ順序で特徴量を並べる
         X = race_df[feature_list].copy()
+        
+        # ---------------------------------------------------------
+        # 【修正箇所】最終的なデータ型チェック（Object型が残っていないか確認）
+        # ---------------------------------------------------------
+        object_cols = X.select_dtypes(include=['object']).columns
+        if len(object_cols) > 0:
+            st.warning(f"⚠️ 数値化できていないカラムを検出: {list(object_cols)}")
+            st.warning("これらを強制的に0に変換して予測を続行します。")
+            
+            for col in object_cols:
+                # 無理やり数値変換（エラーは0になる）
+                X[col] = pd.to_numeric(X[col], errors='coerce').fillna(0)
         
         st.success(f"✅ 予測用データ準備完了（特徴量: {len(X.columns)}個）")
         
@@ -225,7 +246,7 @@ if __name__ == "__main__":
     sample_data = {
         'horse_name': ['馬A', '馬B', '馬C'],
         'age': [4, 5, 3],
-        'sex': [0, 0, 1],
+        'sex': ['牡', '牝', 'セ'], # 文字列でテスト
         'weight_carrier': [55, 56, 54],
         'recent_avg_rank': [2.3, 3.5, 1.8],
         'recent_win_rate': [0.33, 0.20, 0.45]
