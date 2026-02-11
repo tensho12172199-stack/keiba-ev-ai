@@ -255,6 +255,40 @@ SUPABASE_KEY=eyJhbGci...
                 
                 st.warning("→ 過去レースデータなしで予測します（精度は大幅に低下します）")
             
+            # 過去レース特徴量の補完（重要！）
+            try:
+                from past_race_fixer import ensure_past_race_features, fix_object_columns
+                
+                race_df = ensure_past_race_features(race_df)
+                race_df = fix_object_columns(race_df)
+                
+            except ImportError:
+                # past_race_fixer.py がない場合は手動で補完
+                st.warning("⚠️ past_race_fixer.py が見つかりません（手動補完）")
+                
+                required_features = {
+                    'past_races_count': 0,
+                    'recent_avg_rank': 0,
+                    'recent_best_rank': 0,
+                    'recent_avg_time_sec': 0,
+                    'recent_avg_speed': 0,
+                    'recent_win_rate': 0,
+                    'recent_top3_rate': 0,
+                    'days_since_last_race': 0,
+                    'recent_avg_pos_4c': 0
+                }
+                
+                for feat, default_value in required_features.items():
+                    if feat not in race_df.columns:
+                        race_df[feat] = default_value
+                
+                # object型を数値型に
+                if 'sex' in race_df.columns and race_df['sex'].dtype == 'object':
+                    race_df['sex'] = pd.to_numeric(race_df['sex'], errors='coerce').fillna(0).astype(int)
+                
+                if 'age' in race_df.columns and race_df['age'].dtype == 'object':
+                    race_df['age'] = pd.to_numeric(race_df['age'], errors='coerce').fillna(0).astype(int)
+            
             progress_bar.progress(70)
             
             # 4. 予測実行
