@@ -4,10 +4,73 @@ Plackett-Luce モデルによる着順シミュレーション
 改善点:
 - 三連複（トリオ）確率の計算を追加
 - パフォーマンス最適化
+- Streamlit用の簡易関数を追加
 """
 
 import numpy as np
 from collections import defaultdict
+
+
+def simulate_race_probabilities(scores, n_simulations=50000):
+    """
+    予測スコアから各馬の確率を計算（Streamlit用簡易版）
+    
+    Args:
+        scores: 予測スコア（配列またはリスト）
+        n_simulations: シミュレーション回数
+    
+    Returns:
+        {
+            'win': [馬1の勝率, 馬2の勝率, ...],
+            'place': [馬1の複勝率, 馬2の複勝率, ...],
+            'show': [馬1の3着内率, 馬2の3着内率, ...]
+        }
+    """
+    scores = np.array(scores, dtype=float)
+    n_horses = len(scores)
+    
+    # スコアが低い方が上位なので、逆転させる
+    # または、スコアをそのまま使って確率化
+    # ここでは exp(-score) で確率に変換（スコアが低い方が確率が高い）
+    probs = np.exp(-scores / scores.std())  # 標準化して指数化
+    probs = probs / probs.sum()  # 正規化
+    
+    # カウンター
+    win_counts = np.zeros(n_horses)
+    place_counts = np.zeros(n_horses)
+    show_counts = np.zeros(n_horses)
+    
+    # シミュレーション
+    for _ in range(n_simulations):
+        remaining_probs = probs.copy()
+        finish_order = []
+        
+        for _ in range(min(3, n_horses)):  # TOP3だけ計算
+            probs_normalized = remaining_probs / remaining_probs.sum()
+            selected_idx = np.random.choice(n_horses, p=probs_normalized)
+            
+            finish_order.append(selected_idx)
+            remaining_probs[selected_idx] = 0
+        
+        # カウント
+        if len(finish_order) >= 1:
+            win_counts[finish_order[0]] += 1
+        
+        if len(finish_order) >= 2:
+            place_counts[finish_order[0]] += 1
+            place_counts[finish_order[1]] += 1
+        
+        if len(finish_order) >= 3:
+            show_counts[finish_order[0]] += 1
+            show_counts[finish_order[1]] += 1
+            show_counts[finish_order[2]] += 1
+    
+    # 確率に変換
+    return {
+        'win': win_counts / n_simulations,
+        'place': place_counts / n_simulations,
+        'show': show_counts / n_simulations
+    }
 
 
 def simulate_plackett_luce(horse_ids, win_probs, n_sim=30000):
@@ -78,7 +141,23 @@ if __name__ == "__main__":
     print("Plackett-Luce シミュレーションのテスト")
     print("="*60)
     
-    # サンプルデータ
+    # テスト1: 簡易版
+    print("\n【テスト1: 簡易版】")
+    scores = np.array([3.5, 4.2, 5.1, 6.3, 7.8])
+    result = simulate_race_probabilities(scores, n_simulations=10000)
+    
+    print("予測スコア:", scores)
+    print("\n単勝確率:")
+    for i, prob in enumerate(result['win'], 1):
+        print(f"  馬{i}: {prob:.2%}")
+    
+    print("\n複勝確率:")
+    for i, prob in enumerate(result['place'], 1):
+        print(f"  馬{i}: {prob:.2%}")
+    
+    # テスト2: 完全版
+    print("\n" + "="*60)
+    print("【テスト2: 完全版】")
     horse_ids = [1, 2, 3, 4, 5]
     win_probs = np.array([0.3, 0.25, 0.2, 0.15, 0.1])
     
