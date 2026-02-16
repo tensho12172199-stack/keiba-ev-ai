@@ -165,13 +165,9 @@ if predict_button:
             
             try:
                 from feature_engineering import apply_all_features
-                from add_passing_features import add_passing_features
                 from add_speed_features import add_speed_features
                 
                 race_df = apply_all_features(race_df)
-                
-                if 'passing' in race_df.columns:
-                    race_df = add_passing_features(race_df)
                 
                 if 'distance' in race_df.columns and 'time_sec' in race_df.columns:
                     race_df = add_speed_features(race_df)
@@ -190,6 +186,8 @@ if predict_button:
             # 環境変数の確認
             supabase_url = os.getenv("SUPABASE_URL")
             supabase_key = os.getenv("SUPABASE_KEY")
+            
+            supabase_db = None  # 後で脚質判定でも使う
             
             if supabase_url and supabase_key:
                 st.info(f"✓ Supabase URL: {supabase_url[:30]}...")
@@ -227,6 +225,15 @@ if predict_button:
                     else:
                         st.warning("⚠️ 過去レースデータが0件です（新馬戦の可能性）")
                     
+                    # 脚質特徴量を生成（Supabase使用）
+                    try:
+                        from passing_prediction import add_passing_features_for_prediction
+                        st.write("🏇 脚質特徴量を生成中...")
+                        race_df = add_passing_features_for_prediction(race_df, supabase_db)
+                        st.success("✅ 脚質特徴量生成完了")
+                    except Exception as pass_err:
+                        st.warning(f"⚠️ 脚質特徴量生成エラー: {pass_err}")
+                    
                 except ImportError as e:
                     st.error(f"❌ supabase_horse_history.py が見つかりません: {e}")
                     st.warning("→ 過去レースデータなしで予測します（精度は低下します）")
@@ -256,11 +263,15 @@ SUPABASE_KEY=eyJhbGci...
                 st.warning("→ 過去レースデータなしで予測します（精度は大幅に低下します）")
             
             # 過去レース特徴量の補完（重要！）
+            status_text.text("🔧 特徴量を補完中...")
+            
             try:
                 from past_race_fixer import ensure_past_race_features, fix_object_columns
                 
                 race_df = ensure_past_race_features(race_df)
                 race_df = fix_object_columns(race_df)
+                
+                st.success("✅ 特徴量補完完了")
                 
             except ImportError:
                 # past_race_fixer.py がない場合は手動で補完
@@ -272,15 +283,26 @@ SUPABASE_KEY=eyJhbGci...
                     'recent_best_rank': 0,
                     'recent_avg_time_sec': 0,
                     'recent_avg_speed': 0,
+                    'speed_index_avg_past': 0,
+                    'speed_index_max_past': 0,
                     'recent_win_rate': 0,
                     'recent_top3_rate': 0,
                     'days_since_last_race': 0,
-                    'recent_avg_pos_4c': 0
+                    'recent_avg_pos_4c': 0,
+                    'style_front': 0,
+                    'style_stalker': 0,
+                    'style_closer': 0,
+                    'style_chaser': 0,
+                    'passing_gain': 0
                 }
                 
+                added_count = 0
                 for feat, default_value in required_features.items():
                     if feat not in race_df.columns:
                         race_df[feat] = default_value
+                        added_count += 1
+                
+                st.info(f"✅ {added_count}個の特徴量を0で補完しました")
                 
                 # object型を数値型に
                 if 'sex' in race_df.columns and race_df['sex'].dtype == 'object':
