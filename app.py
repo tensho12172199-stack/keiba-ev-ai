@@ -1,1 +1,167 @@
-"""\n競馬予測Streamlitアプリ（修正版）\n\n特徴量不一致エラーを解消し、正しく予測できるようにした版\n"""\n\nimport streamlit as st\nimport pandas as pd\nimport numpy as np\nimport os\nimport re  # 新規追加\nfrom datetime import datetime\n\n# ページ設定\nst.set_page_config(\n    page_title="競馬予測システム",\n    page_icon="🏇",\n    layout="wide"\n)\n\n# CSS（見た目の改善）\nst.markdown("""\n<style>\n    .main-header {\n        font-size: 2.5rem;\n        font-weight: bold;\n        color: #1f77b4;\n        text-align: center;\n        padding: 1rem;\n    }\n    .prediction-card {\n        background-color: #f0f2f6;\n        padding: 1rem;\n        border-radius: 10px;\n        margin: 0.5rem 0;\n    }\n    .top-prediction {\n        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);\n        color: white;\n        padding: 1.5rem;\n        border-radius: 10px;\n        margin: 1rem 0;\n    }\n</style>\n""", unsafe_allow_html=True)\n\n# タイトル\nst.markdown('<p class="main-header">🏇 競馬予測システム</p>', unsafe_allow_html=True)\nst.markdown("---")\n\n# サイドバー\nwith st.sidebar:\n    st.header("⚙️ 設定")\n    \n    # モデルファイル確認\n    st.subheader("📁 ファイル確認")\n    \n    from pathlib import Path\n    \n    files_status = {\n        "モデルファイル": "horse_racing_full_model.txt",\n        "特徴量リスト": "feature_list.pkl",\n        "設定ファイル": "simple_weights.yaml",\n        "予測スクリプト": "streamlit_predict.py"\n    }\n    \n    all_ok = True\n    for name, file in files_status.items():\n        if Path(file).exists():\n            st.success(f"✓ {name}")\n        else:\n            st.error(f"❌ {name}")\n            all_ok = False\n    \n    if not all_ok:\n        st.warning("⚠️ 必要なファイルが不足しています")\n    \n    st.markdown("---")\n    \n    # Supabase接続確認\n    st.subheader("🔌 Supabase接続")\n    \n    supabase_url = os.getenv("SUPABASE_URL")\n    supabase_key = os.getenv("SUPABASE_KEY")\n    \n    if supabase_url and supabase_key:\n        st.success("✓ 接続済み")\n    else:\n        st.warning("⚠️ 未接続")\n        st.caption("過去レースデータを使用しない場合は問題ありません")\n    \n    st.markdown("---")\n    \n    # シミュレーション設定\n    st.subheader("🎲 シミュレーション設定")\n    use_simulation = st.checkbox("Plackett-Luceシミュレーション", value=True)\n    \n    if use_simulation:\n        n_simulations = st.slider(\n            "シミュレーション回数",\n            min_value=10000,\n            max_value=100000,\n            value=50000,\n            step=10000\n        )\n    else:\n        n_simulations = 0\n\n# ユーティリティ関数（レースID抽出）\ndef extract_race_id_from_url(race_url):\n    \n    \""\"\n    netkeibaのURLからレースIDを抽出する\n    \""\"\n    match = re.search(r"race_id=(\d+)", race_url)\n    if match:\n        return match.group(1)\n    return None\n\n# メインエリア\ncol1, col2 = st.columns([2, 1])\n\nwith col1:\n    st.subheader("📌 レース情報入力")\n    race_url = st.text_input(\n        "レースURLを入力してください",\n        placeholder="https://race.netkeiba.com/race/shutuba.html?race_id=..."\n    )\n\nwith col2:\n    st.subheader("💡 使い方")\n    st.caption("1. netkeibaのレースURLを入力")\n    st.caption("2. 予測実行ボタンをクリック")\n    st.caption("3. 結果を確認")\n\n# 予測実行ボタン\npredict_button = st.button("🔮 予測実行", type="primary", use_container_width=True)\n\nif predict_button:\n    if not race_url:\n        st.error("❌ レースURLを入力してください")\n    else:\n        # レースIDを抽出\n        race_id = extract_race_id_from_url(race_url)\n        if not race_id:\n            st.error("❌ 有効なレースURLを入力してください")\n        elif not all_ok:\n            st.error("❌ 必要なファイルが不足しています。サイドバーを確認してください。")\n        else:\n            try:\n                st.success(f"✅ 抽出されたレースID: {race_id}")\n                # ここでレースIDを用いてデータを取得する処理に変更します\n                from fetch_race import fetch_race_data_by_id\n                race_df = fetch_race_data_by_id(race_id)  # 修正箇所\n                \n                if race_df is None or len(race_df) == 0:\n                    st.error("❌ レースデータの取得に失敗しました")\n                    st.stop()\n\n                st.success(f"✅ {len(race_df)}頭のデータを取得")\n                \n            except ImportError:\n                st.error("❌ データ取得モジュールが見つかりません")\n                st.stop()\n            except Exception as e:\n                st.error(f"❌ データ取得エラー: {e}")\n                st.stop()
+"""
+競馬予測Streamlitアプリ（修正版）
+
+特徴量不一致エラーを解消し、正しく予測できるようにした版
+"""
+
+import streamlit as st
+import pandas as pd
+import numpy as np
+import os
+import re  # 新規追加
+from datetime import datetime
+
+# ページ設定
+st.set_page_config(
+    page_title="競馬予測システム",
+    page_icon="🏇",
+    layout="wide"
+)
+
+# CSS（見た目の改善）
+st.markdown("""
+<style>
+    .main-header {
+        font-size: 2.5rem;
+        font-weight: bold;
+        color: #1f77b4;
+        text-align: center;
+        padding: 1rem;
+    }
+    .prediction-card {
+        background-color: #f0f2f6;
+        padding: 1rem;
+        border-radius: 10px;
+        margin: 0.5rem 0;
+    }
+    .top-prediction {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 1.5rem;
+        border-radius: 10px;
+        margin: 1rem 0;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# タイトル
+st.markdown('<p class="main-header">🏇 競馬予測システム</p>', unsafe_allow_html=True)
+st.markdown("---")
+
+# サイドバー
+with st.sidebar:
+    st.header("⚙️ 設定")
+    
+    # モデルファイル確認
+    st.subheader("📁 ファイル確認")
+    
+    from pathlib import Path
+    
+    files_status = {
+        "モデルファイル": "horse_racing_full_model.txt",
+        "特徴量リスト": "feature_list.pkl",
+        "設定ファイル": "simple_weights.yaml",
+        "予測スクリプト": "streamlit_predict.py"
+    }
+    
+    all_ok = True
+    for name, file in files_status.items():
+        if Path(file).exists():
+            st.success(f"✓ {name}")
+        else:
+            st.error(f"❌ {name}")
+            all_ok = False
+    
+    if not all_ok:
+        st.warning("⚠️ 必要なファイルが不足しています")
+    
+    st.markdown("---")
+    
+    # Supabase接続確認
+    st.subheader("🔌 Supabase接続")
+    
+    supabase_url = os.getenv("SUPABASE_URL")
+    supabase_key = os.getenv("SUPABASE_KEY")
+    
+    if supabase_url and supabase_key:
+        st.success("✓ 接続済み")
+    else:
+        st.warning("⚠️ 未接続")
+        st.caption("過去レースデータを使用しない場合は問題ありません")
+    
+    st.markdown("---")
+    
+    # シミュレーション設定
+    st.subheader("🎲 シミュレーション設定")
+    use_simulation = st.checkbox("Plackett-Luceシミュレーション", value=True)
+    
+    if use_simulation:
+        n_simulations = st.slider(
+            "シミュレーション回数",
+            min_value=10000,
+            max_value=100000,
+            value=50000,
+            step=10000
+        )
+    else:
+        n_simulations = 0
+
+# ユーティリティ関数（レースID抽出）
+def extract_race_id_from_url(race_url):
+    
+    """
+    netkeibaのURLからレースIDを抽出する
+    """
+    match = re.search(r"race_id=(\d+)", race_url)
+    if match:
+        return match.group(1)
+    return None
+
+# メインエリア
+col1, col2 = st.columns([2, 1])
+
+with col1:
+    st.subheader("📌 レース情報入力")
+    race_url = st.text_input(
+        "レースURLを入力してください",
+        placeholder="https://race.netkeiba.com/race/shutuba.html?race_id=..."
+    )
+
+with col2:
+    st.subheader("💡 使い方")
+    st.caption("1. netkeibaのレースURLを入力")
+    st.caption("2. 予測実行ボタンをクリック")
+    st.caption("3. 結果を確認")
+
+# 予測実行ボタン
+predict_button = st.button("🔮 予測実行", type="primary", use_container_width=True)
+
+if predict_button:
+    if not race_url:
+        st.error("❌ レースURLを入力してください")
+    else:
+        # レースIDを抽出
+        race_id = extract_race_id_from_url(race_url)
+        if not race_id:
+            st.error("❌ 有効なレースURLを入力してください")
+        elif not all_ok:
+            st.error("❌ 必要なファイルが不足しています。サイドバーを確認してください。")
+        else:
+            try:
+                st.success(f"✅ 抽出されたレースID: {race_id}")
+                # ここでレースIDを用いてデータを取得する処理に変更します
+                from fetch_race import fetch_race_data_by_id
+                race_df = fetch_race_data_by_id(race_id)  # 修正箇所
+                
+                if race_df is None or len(race_df) == 0:
+                    st.error("❌ レースデータの取得に失敗しました")
+                    st.stop()
+
+                st.success(f"✅ {len(race_df)}頭のデータを取得")
+                
+            except ImportError:
+                st.error("❌ データ取得モジュールが見つかりません")
+                st.stop()
+            except Exception as e:
+                st.error(f"❌ データ取得エラー: {e}")
+                st.stop()
