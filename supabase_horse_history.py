@@ -354,6 +354,28 @@ def calculate_recent_features_supabase(
         }
         
         if not past_races.empty:
+            # === speedを計算（distance / time_sec）===
+            if 'speed' not in past_races.columns:
+                if 'distance' in past_races.columns and 'time_sec' in past_races.columns:
+                    past_races['speed'] = past_races['distance'] / past_races['time_sec']
+                    past_races['speed'] = past_races['speed'].replace([np.inf, -np.inf], np.nan)
+            
+            # === passing_4cを計算（passingカラムから抽出）===
+            if 'passing_4c' not in past_races.columns:
+                if 'passing' in past_races.columns:
+                    def extract_4c(passing):
+                        """通過順から4コーナー位置を抽出"""
+                        if pd.isna(passing) or passing == '':
+                            return np.nan
+                        try:
+                            positions = [int(p) for p in str(passing).split('-') if p.isdigit()]
+                            # 4コーナーは最後の位置（通常4番目）
+                            return positions[-1] if positions else np.nan
+                        except:
+                            return np.nan
+                    
+                    past_races['passing_4c'] = past_races['passing'].apply(extract_4c)
+            
             # 平均着順
             if 'rank' in past_races.columns:
                 features['recent_avg_rank'] = past_races['rank'].mean()
@@ -363,9 +385,11 @@ def calculate_recent_features_supabase(
             if 'time_sec' in past_races.columns:
                 features['recent_avg_time_sec'] = past_races['time_sec'].mean()
             
-            # 平均スピード
+            # 平均スピード（計算後）
             if 'speed' in past_races.columns:
-                features['recent_avg_speed'] = past_races['speed'].mean()
+                speed_mean = past_races['speed'].mean()
+                if not pd.isna(speed_mean):
+                    features['recent_avg_speed'] = speed_mean
             
             # 勝率
             if 'rank' in past_races.columns:
@@ -374,14 +398,19 @@ def calculate_recent_features_supabase(
             
             # 連続出走日数
             if 'race_date' in past_races.columns and race_date:
-                last_race_date = pd.to_datetime(past_races['race_date'].iloc[0])
-                current_date = pd.to_datetime(race_date)
-                days_since_last = (current_date - last_race_date).days
-                features['days_since_last_race'] = days_since_last
+                try:
+                    last_race_date = pd.to_datetime(past_races['race_date'].iloc[0])
+                    current_date = pd.to_datetime(race_date)
+                    days_since_last = (current_date - last_race_date).days
+                    features['days_since_last_race'] = days_since_last
+                except:
+                    pass
             
-            # 脚質
+            # 脚質（計算後）
             if 'passing_4c' in past_races.columns:
-                features['recent_avg_pos_4c'] = past_races['passing_4c'].mean()
+                pos_4c_mean = past_races['passing_4c'].mean()
+                if not pd.isna(pos_4c_mean):
+                    features['recent_avg_pos_4c'] = pos_4c_mean
         
         features_list.append(features)
     
