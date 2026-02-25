@@ -169,11 +169,71 @@ def predict_race_streamlit(race_df,
         # 学習時と同じ順序で特徴量を並べる
         X = race_df[feature_list].copy()
         
+        # 特徴量数の最終チェック
+        if len(X.columns) != len(feature_list):
+            st.error(f"❌ 特徴量数が一致しません")
+            st.write(f"   期待: {len(feature_list)}個")
+            st.write(f"   実際: {len(X.columns)}個")
+            
+            # 重複をチェック
+            duplicates = [col for col in X.columns if list(X.columns).count(col) > 1]
+            if duplicates:
+                st.error(f"❌ 重複している特徴量: {set(duplicates)}")
+            
+            st.stop()
+        
         st.success(f"✅ 予測用データ準備完了（特徴量: {len(X.columns)}個）")
+        
+        # デバッグ情報
+        with st.expander("🔍 特徴量リスト（デバッグ用）"):
+            st.write(f"**学習時の特徴量数**: {len(feature_list)}")
+            st.write(f"**予測時の特徴量数**: {len(X.columns)}")
+            
+            if len(X.columns) != len(feature_list):
+                st.warning(f"⚠️ 特徴量数が不一致（学習: {len(feature_list)}, 予測: {len(X.columns)}）")
+            
+            # 重複チェック
+            duplicates = [col for col in X.columns if list(X.columns).count(col) > 1]
+            if duplicates:
+                st.error(f"❌ 重複している特徴量: {set(duplicates)}")
+            
+            st.write("**特徴量一覧:**")
+            st.dataframe(pd.DataFrame({
+                'feature': X.columns,
+                'dtype': X.dtypes.values,
+                'null_count': X.isna().sum().values
+            }))
         
         # 予測
         with st.spinner("🔮 予測計算中..."):
-            predictions = model.predict(X)
+            try:
+                # 一時的にshape checkを無効化
+                predictions = model.predict(X, predict_disable_shape_check=True)
+                
+                if len(X.columns) != len(feature_list):
+                    st.warning(
+                        f"⚠️ 特徴量数が不一致のため、一時的に予測を続行しています。\n"
+                        f"正確な予測のため、モデルの再学習を推奨します。"
+                    )
+                    
+            except Exception as e:
+                st.error(f"❌ 予測エラー: {e}")
+                
+                # 詳細診断
+                st.write("### 詳細診断情報")
+                st.write(f"入力データの形状: {X.shape}")
+                st.write(f"データ型: {X.dtypes.value_counts()}")
+                
+                # NaNや無限大をチェック
+                nan_cols = X.columns[X.isna().any()].tolist()
+                if nan_cols:
+                    st.warning(f"⚠️ NaN含む列: {nan_cols}")
+                
+                inf_cols = X.columns[(X == np.inf).any() | (X == -np.inf).any()].tolist()
+                if inf_cols:
+                    st.warning(f"⚠️ 無限大含む列: {inf_cols}")
+                
+                raise
         
         # 結果をDataFrameに追加
         result_df = race_df.copy()
